@@ -1,0 +1,13 @@
+{
+  "name": "session-lens",
+  "owner": {
+    "name": "Daniel Zheng"
+  },
+  "description": "Daniel Zheng 的 Claude Code mod：顯示目前模型與 skills 用量",
+  "plugins": [
+    {
+      "name": "session-lens",
+      "source": "./"
+    }
+  ]
+}
