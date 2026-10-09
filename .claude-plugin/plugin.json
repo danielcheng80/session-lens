@@ -1,1 +1,1 @@
-{"name": "session-lens", "description": "在輸入框上方顯示目前模型與本 session 用過的 skills（含估計 token 數）", "author": {"name": "Daniel Zheng"}, "types": "./types/index.d.ts"}
+{"name": "session-lens", "version": "0.2.0", "description": "在輸入框上方顯示目前模型與本 session 用過的 skills（含估計 token 數）", "author": {"name": "Daniel Zheng"}, "types": "./types/index.d.ts"}
