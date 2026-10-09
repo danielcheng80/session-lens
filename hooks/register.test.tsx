@@ -21,6 +21,8 @@ test('估算與格式化', async () => {
   expect(formatTokens(3240)).toBe('3.2k')
   expect(formatTokens(12800)).toBe('13k')
   expect(prettyModel('claude-opus-5-5')).toBe('Opus 5.5')
+  expect(prettyModel('claude-opus-4-20250514')).toBe('Opus 4')
+  expect(prettyModel('claude-sonnet-4-5-20250929')).toBe('Sonnet 4.5')
   expect(prettyModel('custom-model')).toBe('custom-model')
 })
 
@@ -30,7 +32,7 @@ test('一行放不下時收成 +N', async () => {
     ['tdd', { tokens: 1800, count: 1 }],
     ['writing-plans', { tokens: 900, count: 1 }],
   ] as const
-  const narrow = fitInline(list.map(([n, u]) => [n, { ...u }]), 33)
+  const narrow = fitInline(list.map(([n, u]) => [n, { ...u }]), 34)
   expect(narrow.shown.map(([n]) => n)).toEqual(['brainstorming', 'tdd'])
   expect(narrow.rest).toBe(1)
   expect(fitInline(list.map(([n, u]) => [n, { ...u }]), 200).rest).toBe(0)
@@ -55,4 +57,18 @@ test('skill 累計並在兩種介面上切換明細', async ($, on) => {
     expect(Boolean(await ui.find({ type: 'Text', text: /×2/ }))).toBe(!startsExpanded)
     await ui.unmount()
   }
+})
+
+test('所有 skill 都是 0 token 時，明細仍畫出長條', async ($, on) => {
+  on('session.model', () => ({ value: 'claude-opus-5-5' }))
+  on('turn.start', ($, e) => ({ turnId: e.turnId }))
+  on('skill.prompt', () => ({ text: '' }))
+  await $.turn.start({ text: '', turnId: 't1' })
+  await $.skill.prompt({ skill: 'tdd', text: '' })
+
+  const ui = await $.ui.mount({ plugin: 'session-lens', surface: 'terminal', ...band(100) })
+  await ui.press({ key: 'toggle' })
+  expect(await ui.find({ type: 'Text', text: /^█$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /NaN/ })).toBeUndefined()
+  await ui.unmount()
 })

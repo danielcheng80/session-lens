@@ -40,12 +40,12 @@ const clip = (text: string, max: number): string => {
 export const formatTokens = (n: number): string =>
   n < 1000 ? String(n) : `${(n / 1000).toFixed(n < 10000 ? 1 : 0)}k`
 
-// claude-opus-5-5 → Opus 5.5；認不出來就原樣顯示
+// claude-opus-5-5 → Opus 5.5，claude-opus-4-20250514 → Opus 4；認不出來就原樣顯示
 export const prettyModel = (id: string): string => {
-  const m = /^claude-([a-z]+)-(\d+)-(\d+)/.exec(id)
+  const m = /^claude-([a-z]+)-(\d+)(?:-(\d{1,2})(?!\d))?/.exec(id)
   if (!m) return id
   const [, family = '', major, minor] = m
-  return `${family[0]?.toUpperCase()}${family.slice(1)} ${major}.${minor}`
+  return `${family[0]?.toUpperCase()}${family.slice(1)} ${major}${minor ? `.${minor}` : ''}`
 }
 
 // 依 token 數由多到少，挑出一行放得下的 skill，其餘併成 +N
@@ -57,7 +57,7 @@ export const fitInline = (
   let used = 0
   for (const [i, [name, use]] of list.entries()) {
     const restAfter = list.length - i - 1
-    const reserve = restAfter > 0 ? width(` +${restAfter}`) : 0
+    const reserve = restAfter > 0 ? width(`  +${restAfter}`) : 0
     const piece = `  ${name} ${formatTokens(use.tokens)}`
     if (used + width(piece) + reserve > room) break
     shown.push([name, formatTokens(use.tokens)])
@@ -106,10 +106,11 @@ export const register: Register = on => {
 
     const modelLabel = prettyModel(id)
     const summary = used.length ? ` · ${used.length} skills ≈${formatTokens(total)}` : ' · 尚未使用 skill'
+    const toggleLabel = expanded ? '收合' : '明細'
     const toggle = used.length ? (
       <Button
         key="toggle"
-        label={expanded ? '收合' : '明細'}
+        label={toggleLabel}
         onPress={() => update($, isExpanded, v => !v)}
       />
     ) : null
@@ -122,7 +123,9 @@ export const register: Register = on => {
     )
 
     if (!expanded) {
-      const room = cols - width(`● ${modelLabel}${summary}`) - 8
+      // 終端機把按鈕畫成「[ 標籤 ]」；圓點在部分終端機佔兩格，多留一格
+      const toggleW = toggle ? width(`[ ${toggleLabel} ]`) : 0
+      const room = cols - width(`● ${modelLabel}${summary}`) - 1 - toggleW
       const { shown, rest } = fitInline(used, Math.max(0, room))
       return (
         <Box flexDirection="row" justifyContent="space-between">
@@ -143,7 +146,7 @@ export const register: Register = on => {
     }
 
     // 明細：一 skill 一列，名稱、長條、token 數、使用次數；太高時由引擎捲動
-    const max = used[0]?.[1].tokens ?? 1
+    const max = Math.max(1, used[0]?.[1].tokens ?? 0)
     const nameW = Math.min(24, Math.max(...used.map(([n]) => width(n))))
     const barW = cols >= 48 ? Math.min(20, cols - nameW - 16) : 0
     return (
