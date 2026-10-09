@@ -110,9 +110,15 @@ export const register: Register = on => {
     if (!id) return next(e)
 
     const used = Object.entries(all).sort((a, b) => b[1].tokens - a[1].tokens)
-    const cols = e.props.bodyColumns
+    // 外框兩側各一格框線、一格留白
+    const cols = e.props.bodyColumns - 4
     const total = used.reduce((sum, [, u]) => sum + u.tokens, 0)
     const { Box, Text, Button } = $.ui.resolve(e)
+    const frame = (body: unknown) => (
+      <Box borderStyle="round" borderDimColor paddingX={1}>
+        {body}
+      </Box>
+    )
 
     const head = `● ${prettyModel(id)}`
     const summary = used.length ? ` · ${used.length} skills ≈${formatTokens(total)}` : ' · 尚未使用 skill'
@@ -136,8 +142,8 @@ export const register: Register = on => {
       const toggleW = toggle ? width(`[ ${toggleLabel} ]`) : 0
       const room = cols - width(head + summary) - 1 - toggleW
       const { shown, rest } = fitInline(used, Math.max(0, room))
-      return (
-        <Box flexDirection="row" justifyContent="space-between">
+      return frame(
+        <Box flexDirection="row" justifyContent="space-between" flexGrow={1}>
           <Text wrap="truncate-end">
             {headParts}
             {shown.map(([name, tok]) => (
@@ -157,8 +163,8 @@ export const register: Register = on => {
     const max = Math.max(1, used[0]?.[1].tokens ?? 0)
     const nameW = Math.min(24, Math.max(...used.map(([n]) => width(n))))
     const barW = cols >= 48 ? Math.min(20, cols - nameW - 16) : 0
-    return (
-      <Box flexDirection="column">
+    return frame(
+      <Box flexDirection="column" flexGrow={1}>
         <Box flexDirection="row" justifyContent="space-between">
           {header}
           {toggle}
