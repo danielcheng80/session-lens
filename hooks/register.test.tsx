@@ -17,9 +17,12 @@ const band = (bodyColumns: number) => ({
 test('估算與格式化', async () => {
   expect(estimateTokens('abcdabcd')).toBe(2)
   expect(estimateTokens('繁體中文')).toBe(4)
+  expect(estimateTokens('😀😀😀😀')).toBe(4)
   expect(formatTokens(820)).toBe('820')
   expect(formatTokens(3240)).toBe('3.2k')
   expect(formatTokens(12800)).toBe('13k')
+  expect(formatTokens(9949)).toBe('9.9k')
+  expect(formatTokens(9960)).toBe('10k')
   expect(prettyModel('claude-opus-5-5')).toBe('Opus 5.5')
   expect(prettyModel('claude-opus-4-20250514')).toBe('Opus 4')
   expect(prettyModel('claude-sonnet-4-5-20250929')).toBe('Sonnet 4.5')
@@ -68,7 +71,21 @@ test('所有 skill 都是 0 token 時，明細仍畫出長條', async ($, on) =>
 
   const ui = await $.ui.mount({ plugin: 'session-lens', surface: 'terminal', ...band(100) })
   await ui.press({ key: 'toggle' })
-  expect(await ui.find({ type: 'Text', text: /^█$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /█/ })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /NaN/ })).toBeUndefined()
+  await ui.unmount()
+})
+
+test('session 結束後清空 skill 統計', async ($, on) => {
+  on('session.model', () => ({ value: 'claude-opus-5-5' }))
+  on('turn.start', ($, e) => ({ turnId: e.turnId }))
+  on('skill.prompt', () => ({ text: 'x'.repeat(4000) }))
+  on('session.end', ($, e) => ({ sessionId: e.sessionId }))
+  await $.turn.start({ text: '', turnId: 't1' })
+  await $.skill.prompt({ skill: 'tdd', text: '' })
+  await $.session.end({ reason: 'clear', sessionId: 's1', resume: { id: 's1' } })
+
+  const ui = await $.ui.mount({ plugin: 'session-lens', surface: 'terminal', ...band(100) })
+  expect(await ui.find({ type: 'Text', text: /尚未使用 skill/ })).toBeDefined()
   await ui.unmount()
 })

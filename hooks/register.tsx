@@ -10,14 +10,18 @@ const skills = atom(
 )
 const isExpanded = atom({ plugin: 'session-lens', key: 'isExpanded' } as const, false)
 
-const ACCENT = '#4fa8b2'
-const CJK = /[ᄀ-ᅟ⺀-꓏가-힣豈-﫿︰-﹏＀-｠￠-￦]/
+const ACCENT = '#1f717a'
+const CJK = /[ᄀ-ᅟ⺀-꓏가-힣豈-﫿︰-﹏＀-｠￠-￦\u{20000}-\u{3FFFD}]|\p{Emoji_Presentation}/u
 
 // 中日韓字元約一字一 token，其餘約四字元一 token
 export const estimateTokens = (text: string): number => {
   let cjk = 0
-  for (const ch of text) if (CJK.test(ch)) cjk += 1
-  return Math.round(cjk + (text.length - cjk) / 4)
+  let chars = 0
+  for (const ch of text) {
+    chars += 1
+    if (CJK.test(ch)) cjk += 1
+  }
+  return Math.round(cjk + (chars - cjk) / 4)
 }
 
 // 終端機顯示寬度：全形字佔兩格
@@ -38,7 +42,7 @@ const clip = (text: string, max: number): string => {
 }
 
 export const formatTokens = (n: number): string =>
-  n < 1000 ? String(n) : `${(n / 1000).toFixed(n < 10000 ? 1 : 0)}k`
+  n < 1000 ? String(n) : `${(n / 1000).toFixed(n < 9950 ? 1 : 0)}k`
 
 // claude-opus-5-5 → Opus 5.5，claude-opus-4-20250514 → Opus 4；認不出來就原樣顯示
 export const prettyModel = (id: string): string => {
@@ -77,6 +81,12 @@ export const register: Register = on => {
     return next(e)
   })
 
+  // session 結束（離開、/clear、resume）時清空統計，下一個 session 從零開始
+  on('session.end', async ($, e, next) => {
+    await Promise.all([update($, skills, () => ({})), update($, isExpanded, () => false)])
+    return next(e)
+  })
+
   on('turn.start', async ($, e, next) => {
     await refreshModel($)
     return next(e)
@@ -95,11 +105,10 @@ export const register: Register = on => {
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     if (e.props.hasSurvey) return next(e)
 
-    const id = await read($, model)
+    const [id, all, expanded] = await Promise.all([read($, model), read($, skills), read($, isExpanded)])
     if (!id) return next(e)
 
-    const used = Object.entries(await read($, skills)).sort((a, b) => b[1].tokens - a[1].tokens)
-    const expanded = await read($, isExpanded)
+    const used = Object.entries(all).sort((a, b) => b[1].tokens - a[1].tokens)
     const cols = e.props.bodyColumns
     const total = used.reduce((sum, [, u]) => sum + u.tokens, 0)
     const { Box, Text, Button } = $.ui.resolve(e)
@@ -115,12 +124,11 @@ export const register: Register = on => {
       />
     ) : null
 
-    const header = (
-      <Text wrap="truncate-end">
-        <Text color={ACCENT} bold>● {modelLabel}</Text>
-        <Text dimColor>{summary}</Text>
-      </Text>
-    )
+    const headParts = [
+      <Text key="model" color={ACCENT} bold>● {modelLabel}</Text>,
+      <Text key="summary" dimColor>{summary}</Text>,
+    ]
+    const header = <Text wrap="truncate-end">{headParts}</Text>
 
     if (!expanded) {
       // 終端機把按鈕畫成「[ 標籤 ]」；圓點在部分終端機佔兩格，多留一格
@@ -130,8 +138,7 @@ export const register: Register = on => {
       return (
         <Box flexDirection="row" justifyContent="space-between">
           <Text wrap="truncate-end">
-            <Text color={ACCENT} bold>● {modelLabel}</Text>
-            <Text dimColor>{summary}</Text>
+            {headParts}
             {shown.map(([name, tok]) => (
               <Text key={name}>
                 {'  '}
@@ -163,7 +170,7 @@ export const register: Register = on => {
               {'  '}
               {label}
               {' '.repeat(nameW - width(label) + 1)}
-              {barW > 0 ? <Text color={ACCENT}>{'█'.repeat(filled)}</Text> : null}
+              {barW > 0 ? '█'.repeat(filled) : null}
               {barW > 0 ? <Text dimColor>{'░'.repeat(barW - filled)} </Text> : null}
               {formatTokens(use.tokens).padStart(5)}
               <Text dimColor>{use.count > 1 ? ` ×${use.count}` : ''}</Text>
