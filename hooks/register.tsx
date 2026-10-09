@@ -11,7 +11,8 @@ const skills = atom(
 const isExpanded = atom({ plugin: 'session-lens', key: 'isExpanded' } as const, false)
 
 const ACCENT = '#1f717a'
-const CJK = /[ᄀ-ᅟ⺀-꓏가-힣豈-﫿︰-﹏＀-｠￠-￦\u{20000}-\u{3FFFD}]|\p{Emoji_Presentation}/u
+const CJK = /[ᄀ-ᅟ⺀-꓏가-힣豈-﫿︰-﹏＀-｠￠-￦\u{20000}-\u{3FFFD}]/u
+const WIDE = new RegExp(`${CJK.source}|\\p{Emoji_Presentation}`, 'u')
 
 // 中日韓字元約一字一 token，其餘約四字元一 token
 export const estimateTokens = (text: string): number => {
@@ -24,10 +25,10 @@ export const estimateTokens = (text: string): number => {
   return Math.round(cjk + (chars - cjk) / 4)
 }
 
-// 終端機顯示寬度：全形字佔兩格
+// 終端機顯示寬度：全形字與 emoji 佔兩格
 const width = (text: string): number => {
   let w = 0
-  for (const ch of text) w += CJK.test(ch) ? 2 : 1
+  for (const ch of text) w += WIDE.test(ch) ? 2 : 1
   return w
 }
 
@@ -81,7 +82,7 @@ export const register: Register = on => {
     return next(e)
   })
 
-  // session 結束（離開、/clear、resume）時清空統計，下一個 session 從零開始
+  // session 結束（離開、/clear、resume）時清空統計與展開狀態
   on('session.end', async ($, e, next) => {
     await Promise.all([update($, skills, () => ({})), update($, isExpanded, () => false)])
     return next(e)
@@ -113,7 +114,7 @@ export const register: Register = on => {
     const total = used.reduce((sum, [, u]) => sum + u.tokens, 0)
     const { Box, Text, Button } = $.ui.resolve(e)
 
-    const modelLabel = prettyModel(id)
+    const head = `● ${prettyModel(id)}`
     const summary = used.length ? ` · ${used.length} skills ≈${formatTokens(total)}` : ' · 尚未使用 skill'
     const toggleLabel = expanded ? '收合' : '明細'
     const toggle = used.length ? (
@@ -125,15 +126,15 @@ export const register: Register = on => {
     ) : null
 
     const headParts = [
-      <Text key="model" color={ACCENT} bold>● {modelLabel}</Text>,
+      <Text key="model" color={ACCENT} bold>{head}</Text>,
       <Text key="summary" dimColor>{summary}</Text>,
     ]
     const header = <Text wrap="truncate-end">{headParts}</Text>
 
     if (!expanded) {
-      // 終端機把按鈕畫成「[ 標籤 ]」；圓點在部分終端機佔兩格，多留一格
+      // 終端機把按鈕畫成「[ 標籤 ]」；寬度另外扣一格
       const toggleW = toggle ? width(`[ ${toggleLabel} ]`) : 0
-      const room = cols - width(`● ${modelLabel}${summary}`) - 1 - toggleW
+      const room = cols - width(head + summary) - 1 - toggleW
       const { shown, rest } = fitInline(used, Math.max(0, room))
       return (
         <Box flexDirection="row" justifyContent="space-between">
@@ -145,14 +146,14 @@ export const register: Register = on => {
                 {name} <Text dimColor>{tok}</Text>
               </Text>
             ))}
-            {rest > 0 ? <Text dimColor>{`  +${rest}`}</Text> : null}
+            {rest > 0 && shown.length > 0 ? <Text dimColor>{`  +${rest}`}</Text> : null}
           </Text>
           {toggle}
         </Box>
       )
     }
 
-    // 明細：一 skill 一列，名稱、長條、token 數、使用次數；太高時由引擎捲動
+    // 明細：一 skill 一列，名稱、長條、token 數、使用次數
     const max = Math.max(1, used[0]?.[1].tokens ?? 0)
     const nameW = Math.min(24, Math.max(...used.map(([n]) => width(n))))
     const barW = cols >= 48 ? Math.min(20, cols - nameW - 16) : 0

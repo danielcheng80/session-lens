@@ -17,7 +17,7 @@ const band = (bodyColumns: number) => ({
 test('估算與格式化', async () => {
   expect(estimateTokens('abcdabcd')).toBe(2)
   expect(estimateTokens('繁體中文')).toBe(4)
-  expect(estimateTokens('😀😀😀😀')).toBe(4)
+  expect(estimateTokens('😀😀😀😀')).toBe(1)
   expect(formatTokens(820)).toBe('820')
   expect(formatTokens(3240)).toBe('3.2k')
   expect(formatTokens(12800)).toBe('13k')
@@ -60,6 +60,11 @@ test('skill 累計並在兩種介面上切換明細', async ($, on) => {
     expect(Boolean(await ui.find({ type: 'Text', text: /×2/ }))).toBe(!startsExpanded)
     await ui.unmount()
   }
+
+  // 一個 skill 都放不下時，不畫會被截掉的 +N，數量看摘要
+  const narrow = await $.ui.mount({ plugin: 'session-lens', surface: 'terminal', ...band(30) })
+  expect(await narrow.find({ type: 'Text', text: /\+\d/ })).toBeUndefined()
+  await narrow.unmount()
 })
 
 test('所有 skill 都是 0 token 時，明細仍畫出長條', async ($, on) => {
