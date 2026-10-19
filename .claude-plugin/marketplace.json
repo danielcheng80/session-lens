@@ -3,7 +3,7 @@
   "owner": {
     "name": "Daniel Zheng"
   },
-  "description": "Daniel Zheng 的 Claude Code mod：顯示目前模型與 skills 用量",
+  "description": "Daniel Zheng 的 Claude Code mod：在輸入框上方顯示目前模型、context 用量，以及本 session 各 plugin 的 skill 與 hook 注入量",
   "plugins": [
     {
       "name": "session-lens",

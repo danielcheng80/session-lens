@@ -68,6 +68,77 @@ CAVEMAN MODE=caveman
 - 更新 plugin 不會清掉規則，但**移除 plugin 時規則會一起刪除**，重裝後要重新填。
 - 其他 plugin 改了注入內容的開頭，規則就會失準，要自己更新。
 
+### 找出開頭文字
+
+mod 算完 token 就把內容丟掉，所以畫面上看不到未比中的是什麼，要從下面兩個地方找。
+
+**方法一：從對話紀錄找（建議先用這個）**
+
+Claude Code 會把每個 session 的紀錄存成 `~/.claude/projects/<專案>/<session id>.jsonl`，裡面記有每段 hook 注入的內容。開一個已經用過一陣子的 session，在終端機執行下面的指令。它會讀最近更新的那份紀錄，每段 hook 注入只印一行：
+
+```sh
+python3 - "$(ls -t ~/.claude/projects/*/*.jsonl | head -1)" <<'EOF'
+import json, sys
+
+seen = set()
+for line in open(sys.argv[1], encoding='utf-8'):
+    try:
+        a = json.loads(line).get('attachment') or {}
+    except ValueError:
+        continue
+    if a.get('type') not in ('hook_success', 'hook_additional_context'):
+        continue
+    text = a.get('content') or ''
+    if isinstance(text, list):
+        text = '\n'.join(map(str, text))
+    first = text.strip().split('\n', 1)[0][:80]
+    if first and first not in seen:
+        seen.add(first)
+        print(f"{a.get('hookEvent')}\t{first}\t{a.get('command', '')}")
+EOF
+```
+
+輸出分三欄，以 Tab 分隔：事件名稱、注入內容的第一行、hook 的指令或狀態訊息（可能是空的）。例如：
+
+```
+SessionStart	PONYTAIL MODE ACTIVE — level: full	Loading ponytail mode...
+SessionStart	CAVEMAN MODE ACTIVE — mode: caveman	Loading caveman mode...
+SessionStart	<EXTREMELY_IMPORTANT>
+UserPromptSubmit	CAVEMAN MODE ACTIVE (caveman). Respond terse like smart caveman. All technical s
+```
+
+第二欄就是要拿來寫規則的開頭文字。第一欄和第三欄用來判斷是哪個 plugin：通常第二欄或第三欄就看得出來；看不出來時，用方法二對照。
+
+- 指令只印出 hook 注入內容的第一行，不會印出你的對話內容。
+- 這份紀錄的格式是 Claude Code 內部的，不保證不變。指令沒有輸出、或輸出看起來不對時，改用方法二。
+
+**方法二：從 plugin 的 hook 設定找**
+
+1. 打開 `~/.claude/plugins/installed_plugins.json`，每個 plugin 的 `installPath` 就是它的安裝位置。
+2. hook 的定義在安裝位置底下的 `hooks/hooks.json`。如果 `.claude-plugin/plugin.json` 有 `hooks` 欄位，就以它為準：欄位的值是路徑時打開那個檔案，是物件時定義就寫在裡面。
+3. 找出 `SessionStart`、`UserPromptSubmit` 這類事件底下 `type` 為 `command` 的指令，打開指令執行的腳本，看它輸出的第一行。`${CLAUDE_PLUGIN_ROOT}` 代表安裝位置。
+4. 腳本可能改動那個 plugin 的狀態，所以只讀程式碼，不要直接執行。
+
+### 挑開頭文字的原則
+
+- **只取固定不變的部分。** 例如 `PONYTAIL MODE ACTIVE — level: full` 的 `full` 會隨設定改變，規則寫成 `PONYTAIL MODE=ponytail`。
+- **一個 plugin 可以有好幾條規則。** 不同事件的第一行不一樣時，各寫一條，名稱填同一個，就會歸在同一組。上面的 caveman 兩行開頭剛好都是 `CAVEMAN MODE`，寫一條就夠了。
+- **別太短。** 例如只寫 `<` 會把其他 plugin 的注入也算進來。規則依順序比對，第一條比中的就生效。
+- **名稱用 plugin 的名字**，和 skill 那邊顯示的分組名稱一致，同一個 plugin 的 skill 和 hook 注入就會合在同一組。
+
+### 交給 AI 代勞
+
+可以把下面這段直接貼給 Claude Code，讓它代為產生規則：
+
+```
+請幫我產生 session-lens 的 hook 比對規則：
+1. 依 session-lens README「找出開頭文字」的方法一，執行那段 python3 指令，列出 hook 注入的第一行。
+2. 判斷每一行屬於哪個 plugin；判斷不出來時，依方法二讀該 plugin 的 hook 設定與腳本對照，只讀不執行。
+3. 依「挑開頭文字的原則」，每個 plugin 寫出「開頭文字=plugin 名稱」，一條一行。
+4. 只列出規則給我，不要修改任何設定檔；我會自己到 /config 的「hook 比對規則」貼上。
+5. 對話紀錄裡只讀 hook 注入的那幾筆，不要讀取或引用其他對話內容。
+```
+
 ## 其他說明
 
 - 外框是灰色圓角細框，上下各多佔一行；框線與左右留白共佔 4 欄。
