@@ -1,18 +1,25 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import type { SkillUse } from '../types'
+import type { Injection, Injections, Resident } from '../types'
 
 const model = atom({ plugin: 'session-lens', key: 'model' } as const, '')
-const skills = atom(
-  { plugin: 'session-lens', key: 'skills' } as const,
-  {} as Record<string, SkillUse>,
-)
+const injections = atom({ plugin: 'session-lens', key: 'injections' } as const, {} as Injections)
+const round = atom({ plugin: 'session-lens', key: 'round' } as const, 0)
+const output = atom({ plugin: 'session-lens', key: 'output' } as const, 0)
+const contextPercent = atom({ plugin: 'session-lens', key: 'contextPercent' } as const, null as number | null)
+const resident = atom({ plugin: 'session-lens', key: 'resident' } as const, [] as Resident[])
 const isExpanded = atom({ plugin: 'session-lens', key: 'isExpanded' } as const, false)
 
 const ACCENT = '#1f717a'
-const CJK = /[ᄀ-ᅟ⺀-꓏가-힣豈-﫿︰-﹏＀-｠￠-￦\u{20000}-\u{3FFFD}]/u
+const CJK = /[ᄀ-ᅟ⺀-꓏가-힣豈-﫿︰-﹏＀-｠￠-￦\u{20000}-\u{3FFFD}]/u
 const WIDE = new RegExp(`${CJK.source}|\\p{Emoji_Presentation}`, 'u')
+// 未比中規則的 hook 注入歸在這一組
+const UNMATCHED = ''
+// 不屬於任何 plugin 的 skill 歸在這一組
+const LOCAL = '本機'
+const NAME_MAX = 64
+const RESIDENT_MAX = 5
 
 // 中日韓字元約一字一 token，其餘約四字元一 token
 export const estimateTokens = (text: string): number => {
@@ -53,22 +60,48 @@ export const prettyModel = (id: string): string => {
   return `${family[0]?.toUpperCase()}${family.slice(1)} ${major}${minor ? `.${minor}` : ''}`
 }
 
-// 依 token 數由多到少，挑出一行放得下的 skill，其餘併成 +N
+// 「開頭文字=名稱」，以最後一個等號分開；格式不對的規則略過
+export const parseRules = (lines: readonly string[]): [string, string][] =>
+  lines.flatMap(line => {
+    const at = line.lastIndexOf('=')
+    const prefix = line.slice(0, at).trim()
+    const name = line.slice(at + 1).trim()
+    return at > 0 && prefix && name ? [[prefix, name.slice(0, NAME_MAX)] as [string, string]] : []
+  })
+
+// 只看注入內容的第一個非空行，先去掉引擎加的「SessionStart:startup hook success: 」這類前綴
+export const matchRule = (rules: readonly [string, string][], text: string): string | undefined => {
+  const first = (text.trimStart().split('\n', 1)[0] ?? '').replace(/^[\w:]+ hook [^:]*: /, '')
+  return rules.find(([prefix]) => first.startsWith(prefix))?.[1]
+}
+
+// 依 token 數由多到少，挑出一行放得下的項目，其餘併成 +N
 export const fitInline = (
-  list: readonly [string, SkillUse][],
+  list: readonly (readonly [string, number])[],
   room: number,
 ): { shown: [string, string][]; rest: number } => {
   const shown: [string, string][] = []
   let used = 0
-  for (const [i, [name, use]] of list.entries()) {
+  for (const [i, [name, tokens]] of list.entries()) {
     const restAfter = list.length - i - 1
     const reserve = restAfter > 0 ? width(`  +${restAfter}`) : 0
-    const piece = `  ${name} ${formatTokens(use.tokens)}`
+    const piece = `  ${name} ${formatTokens(tokens)}`
     if (used + width(piece) + reserve > room) break
-    shown.push([name, formatTokens(use.tokens)])
+    shown.push([name, formatTokens(tokens)])
     used += width(piece)
   }
   return { shown, rest: list.length - shown.length }
+}
+
+const record = async ($: EngineInterface, group: string, item: string, tokens: number) => {
+  const now = await read($, round)
+  const g = group.slice(0, NAME_MAX)
+  const k = item.slice(0, NAME_MAX)
+  await update($, injections, all => {
+    const items = all[g] ?? {}
+    const prev = items[k] ?? { tokens: 0, count: 0, round: now }
+    return { ...all, [g]: { ...items, [k]: { tokens: prev.tokens + tokens, count: prev.count + 1, round: now } } }
+  })
 }
 
 const refreshModel = async ($: EngineInterface) => {
@@ -76,7 +109,29 @@ const refreshModel = async ($: EngineInterface) => {
   await update($, model, () => id)
 }
 
-export const register: Register = on => {
+// 常駐成本：skill 清單依 plugin 分組，已載入的 MCP 工具依 server 分組，subagent 定義與記憶檔各一列
+const refreshResident = async ($: EngineInterface) => {
+  const { context } = await $.session.usage({ breakdown: 'summary' })
+  const b = context.breakdown
+  const sums = new Map<string, number>()
+  const add = (name: string, tokens: number) => {
+    const n = name.slice(0, NAME_MAX)
+    sums.set(n, (sums.get(n) ?? 0) + tokens)
+  }
+  for (const s of b?.skills?.skillFrontmatter ?? []) add(s.pluginName ?? LOCAL, s.tokens)
+  for (const t of b?.mcpTools ?? []) if (t.isLoaded) add(`MCP ${t.serverName}`, t.tokens)
+  for (const a of b?.agents ?? []) add('subagent 定義', a.tokens)
+  for (const f of b?.memoryFiles ?? []) add('記憶檔', f.tokens)
+  const list = [...sums].map(([name, tokens]) => ({ name, tokens })).filter(r => r.tokens > 0)
+  await Promise.all([
+    update($, resident, () => list.sort((a, b) => b.tokens - a.tokens)),
+    update($, contextPercent, () => context.percent ?? null),
+  ])
+}
+
+export const register: Register = (on, options) => {
+  const rules = parseRules((options.hookLabels as readonly string[] | undefined) ?? [])
+
   on('session.start', async ($, e, next) => {
     await refreshModel($)
     return next(e)
@@ -84,35 +139,91 @@ export const register: Register = on => {
 
   // session 結束（離開、/clear、resume）時清空統計與展開狀態
   on('session.end', async ($, e, next) => {
-    await Promise.all([update($, skills, () => ({})), update($, isExpanded, () => false)])
+    await Promise.all([
+      update($, injections, () => ({})),
+      update($, round, () => 0),
+      update($, output, () => 0),
+      update($, contextPercent, () => null),
+      update($, resident, () => []),
+      update($, isExpanded, () => false),
+    ])
     return next(e)
   })
 
+  // 同一輪、同一事件裡第幾段未比中的注入，用來編號
+  const seen = new Map<string, number>()
+
+  // 每段注入送給模型前觸發；只統計 hook 的輸出，其他來源直接放行
+  on('prompt.attachment', async ($, e, next) => {
+    const result = await next(e)
+    if (e.origin.kind !== 'hook' || result.text === null) return result
+    const event = e.origin.event
+    const tokens = estimateTokens(result.text)
+    const name = matchRule(rules, result.text)
+    if (name) {
+      await record($, e.agentId ? 'subagent' : name, e.agentId ? name : `${event} hook`, tokens)
+    } else {
+      const key = `${await read($, round)}:${e.agentId ?? ''}:${event}`
+      const n = (seen.get(key) ?? 0) + 1
+      seen.set(key, n)
+      await record($, e.agentId ? 'subagent' : UNMATCHED, `${event} #${n}`, tokens)
+    }
+    return result
+  })
+
+  // 使用者每送出一則訊息，主對話就開始新的一輪；subagent 的 turn 有自己的 context，不算進主對話的用量
   on('turn.start', async ($, e, next) => {
-    await refreshModel($)
+    if (!e.agentId) {
+      await Promise.all([update($, round, n => n + 1), update($, output, () => 0), refreshModel($), refreshResident($)])
+    }
     return next(e)
+  })
+
+  on('turn.complete', async ($, e, next) => {
+    const result = await next(e)
+    if (!e.agentId) {
+      const out = result.usage?.output_tokens ?? 0
+      const { context } = await $.session.usage()
+      await Promise.all([
+        update($, output, n => n + out),
+        update($, contextPercent, () => context.percent ?? null),
+      ])
+    }
+    return result
   })
 
   on('skill.prompt', async ($, e, next) => {
     const result = await next(e)
-    const tokens = estimateTokens(result.text)
-    await update($, skills, all => {
-      const prev = all[e.skill] ?? { tokens: 0, count: 0 }
-      return { ...all, [e.skill]: { tokens: prev.tokens + tokens, count: prev.count + 1 } }
-    })
+    await record($, e.pluginName ?? LOCAL, e.skill, estimateTokens(result.text))
     return result
   })
 
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     if (e.props.hasSurvey) return next(e)
 
-    const [id, all, expanded] = await Promise.all([read($, model), read($, skills), read($, isExpanded)])
+    const [id, all, now, out, pct, res, expanded] = await Promise.all([
+      read($, model),
+      read($, injections),
+      read($, round),
+      read($, output),
+      read($, contextPercent),
+      read($, resident),
+      read($, isExpanded),
+    ])
     if (!id) return next(e)
 
-    const used = Object.entries(all).sort((a, b) => b[1].tokens - a[1].tokens)
+    const sum = (items: Record<string, Injection>) => Object.values(items).reduce((s, u) => s + u.tokens, 0)
+    const isFresh = (items: Record<string, Injection>) => Object.values(items).some(u => u.round === now && now > 0)
+    const groups = Object.entries(all)
+      .map(([name, items]) => ({ name, items, tokens: sum(items), isFresh: isFresh(items) }))
+      .sort((a, b) => b.tokens - a.tokens)
+    const named = groups.filter(g => g.name !== UNMATCHED)
+    const unmatched = all[UNMATCHED] ?? {}
+    const total = groups.reduce((s, g) => s + g.tokens, 0)
+    const residentTotal = res.reduce((s, r) => s + r.tokens, 0)
+
     // 外框兩側各一格框線、一格留白
     const cols = e.props.bodyColumns - 4
-    const total = used.reduce((sum, [, u]) => sum + u.tokens, 0)
     const { Box, Text, Button } = $.ui.resolve(e)
     const frame = (body: unknown) => (
       <Box borderStyle="round" borderDimColor paddingX={1}>
@@ -121,31 +232,27 @@ export const register: Register = on => {
     )
 
     const head = `● ${prettyModel(id)}`
-    const summary = used.length ? ` · ${used.length} skills ≈${formatTokens(total)}` : ' · 尚未使用 skill'
+    const usage = `${pct === null ? '' : ` · ctx ${Math.round(pct)}%`}${out > 0 ? ` · ↑${formatTokens(out)}` : ''}`
     const toggleLabel = expanded ? '收合' : '明細'
-    const toggle = used.length ? (
-      <Button
-        key="toggle"
-        label={toggleLabel}
-        onPress={() => update($, isExpanded, v => !v)}
-      />
-    ) : null
-
+    const toggle = (
+      <Button key="toggle" label={toggleLabel} onPress={() => update($, isExpanded, v => !v)} />
+    )
     const headParts = [
       <Text key="model" color={ACCENT} bold>{head}</Text>,
-      <Text key="summary" dimColor>{summary}</Text>,
+      <Text key="usage" dimColor>{usage}</Text>,
     ]
-    const header = <Text wrap="truncate-end">{headParts}</Text>
 
     if (!expanded) {
+      const inline = groups.map(g => [`${g.isFresh ? '●' : ''}${g.name || '未比中'}`, g.tokens] as const)
+      const empty = inline.length ? '' : ' · 尚未有注入'
       // 終端機把按鈕畫成「[ 標籤 ]」；寬度另外扣一格
-      const toggleW = toggle ? width(`[ ${toggleLabel} ]`) : 0
-      const room = cols - width(head + summary) - 1 - toggleW
-      const { shown, rest } = fitInline(used, Math.max(0, room))
+      const room = cols - width(head + usage + empty) - 1 - width(`[ ${toggleLabel} ]`)
+      const { shown, rest } = fitInline(inline, Math.max(0, room))
       return frame(
         <Box flexDirection="row" justifyContent="space-between" flexGrow={1}>
           <Text wrap="truncate-end">
             {headParts}
+            <Text dimColor>{empty}</Text>
             {shown.map(([name, tok]) => (
               <Text key={name}>
                 {'  '}
@@ -159,31 +266,61 @@ export const register: Register = on => {
       )
     }
 
-    // 明細：一 skill 一列，名稱、長條、token 數、使用次數
-    const max = Math.max(1, used[0]?.[1].tokens ?? 0)
-    const nameW = Math.min(24, Math.max(...used.map(([n]) => width(n))))
+    // 明細：注入、常駐、未比中三段
+    const items = [...named.flatMap(g => Object.values(g.items)), ...Object.values(unmatched)]
+    const max = Math.max(1, ...items.map(u => u.tokens))
+    const labels = [
+      ...named.flatMap(g => [g.name, ...Object.keys(g.items).map(k => `  ${k}`)]),
+      ...Object.keys(unmatched),
+      ...res.map(r => r.name),
+    ]
+    // 每列另需標記 2 格、空白 1 格、數字 5 格與次數 3 格
+    const nameW = Math.max(4, Math.min(24, cols - 11, Math.max(...labels.map(width))))
     const barW = cols >= 48 ? Math.min(20, cols - nameW - 16) : 0
+    const row = (key: string, name: string, use: { tokens: number; count?: number }, bar: boolean, fresh = false) => {
+      const label = clip(name, nameW)
+      const filled = Math.max(1, Math.round((use.tokens / max) * barW))
+      const showBar = bar && barW > 0
+      return (
+        <Text key={key} wrap="truncate-end">
+          <Text color={ACCENT}>{fresh ? '● ' : '  '}</Text>
+          {label}
+          {' '.repeat(nameW - width(label) + 1)}
+          {showBar ? '█'.repeat(filled) : null}
+          {showBar ? <Text dimColor>{'░'.repeat(barW - filled)} </Text> : null}
+          {!bar && barW > 0 ? ' '.repeat(barW + 1) : null}
+          {formatTokens(use.tokens).padStart(5)}
+          <Text dimColor>{(use.count ?? 0) > 1 ? ` ×${use.count}` : ''}</Text>
+        </Text>
+      )
+    }
+    const heading = (key: string, text: string) => (
+      <Text key={key} dimColor>{text}</Text>
+    )
+    const shownResident = barW > 0 ? res.slice(0, RESIDENT_MAX) : []
+    const restResident = res.length - shownResident.length
+
     return frame(
       <Box flexDirection="column" flexGrow={1}>
         <Box flexDirection="row" justifyContent="space-between">
-          {header}
+          <Text wrap="truncate-end">{headParts}</Text>
           {toggle}
         </Box>
-        {used.map(([name, use]) => {
-          const label = clip(name, nameW)
-          const filled = Math.max(1, Math.round((use.tokens / max) * barW))
-          return (
-            <Text key={name} wrap="truncate-end">
-              {'  '}
-              {label}
-              {' '.repeat(nameW - width(label) + 1)}
-              {barW > 0 ? '█'.repeat(filled) : null}
-              {barW > 0 ? <Text dimColor>{'░'.repeat(barW - filled)} </Text> : null}
-              {formatTokens(use.tokens).padStart(5)}
-              <Text dimColor>{use.count > 1 ? ` ×${use.count}` : ''}</Text>
-            </Text>
-          )
-        })}
+        {heading('h-inj', `注入 ≈${formatTokens(total)}`)}
+        {named.length === 0 && Object.keys(unmatched).length === 0 ? heading('none', '  尚未有注入') : null}
+        {named.flatMap(g => [
+          row(`g-${g.name}`, g.name, { tokens: g.tokens }, false, g.isFresh),
+          ...Object.entries(g.items)
+            .sort((a, b) => b[1].tokens - a[1].tokens)
+            .map(([k, u]) => row(`i-${g.name}-${k}`, `  ${k}`, u, true, u.round === now && now > 0)),
+        ])}
+        {res.length ? heading('h-res', `常駐 ≈${formatTokens(residentTotal)}`) : null}
+        {shownResident.map(r => row(`r-${r.name}`, r.name, r, false))}
+        {restResident > 0 && shownResident.length > 0 ? heading('r-rest', `  其他 ${restResident} 項`) : null}
+        {Object.keys(unmatched).length ? heading('h-un', '未比中') : null}
+        {Object.entries(unmatched)
+          .sort((a, b) => b[1].tokens - a[1].tokens)
+          .map(([k, u]) => row(`u-${k}`, k, u, true, u.round === now && now > 0))}
       </Box>
     )
   })
