@@ -1,6 +1,6 @@
 # session-lens
 
-Claude Code mod：在輸入框上方顯示目前模型，以及本 session 用過的 skills 與估計 token 數。程式都在 `hooks/register.tsx`，`$.state` 的型別定義在 `types/index.d.ts`。
+Claude Code mod：在輸入框上方顯示目前模型、context 用量，以及本 session 各 plugin 的 skill 與 hook 注入量和常駐成本。程式都在 `hooks/register.tsx`，`$.state` 的型別定義在 `types/index.d.ts`。
 
 ## 開發流程
 

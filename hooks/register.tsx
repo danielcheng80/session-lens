@@ -16,10 +16,18 @@ const CJK = /[ᄀ-ᅟ⺀-꓏가-힣豈-﫿︰-﹏＀-｠￠-￦\u{20000}-\u{3FFF
 const WIDE = new RegExp(`${CJK.source}|\\p{Emoji_Presentation}`, 'u')
 // 未比中規則的 hook 注入歸在這一組
 const UNMATCHED = ''
+const UNMATCHED_LABEL = '未比中'
 // 不屬於任何 plugin 的 skill 歸在這一組
 const LOCAL = '本機'
+// 送進 subagent 的 hook 注入歸在這一組
+const SUBAGENT = '\u0000subagent'
 const NAME_MAX = 64
-const RESIDENT_MAX = 5
+// 明細的名稱欄最寬 32 格
+const NAME_W = 32
+
+// 分組在畫面上的名稱
+const groupLabel = (name: string): string =>
+  name === UNMATCHED ? UNMATCHED_LABEL : name === SUBAGENT ? 'subagent' : name
 
 // 中日韓字元約一字一 token，其餘約四字元一 token
 export const estimateTokens = (text: string): number => {
@@ -75,7 +83,7 @@ export const matchRule = (rules: readonly [string, string][], text: string): str
   return rules.find(([prefix]) => first.startsWith(prefix))?.[1]
 }
 
-// 依 token 數由多到少，挑出一行放得下的項目，其餘併成 +N
+// 依傳入的順序，挑出一行放得下的項目，其餘併成 +N
 export const fitInline = (
   list: readonly (readonly [string, number])[],
   room: number,
@@ -150,9 +158,6 @@ export const register: Register = (on, options) => {
     return next(e)
   })
 
-  // 同一輪、同一事件裡第幾段未比中的注入，用來編號
-  const seen = new Map<string, number>()
-
   // 每段注入送給模型前觸發；只統計 hook 的輸出，其他來源直接放行
   on('prompt.attachment', async ($, e, next) => {
     const result = await next(e)
@@ -160,14 +165,10 @@ export const register: Register = (on, options) => {
     const event = e.origin.event
     const tokens = estimateTokens(result.text)
     const name = matchRule(rules, result.text)
-    if (name) {
-      await record($, e.agentId ? 'subagent' : name, e.agentId ? name : `${event} hook`, tokens)
-    } else {
-      const key = `${await read($, round)}:${e.agentId ?? ''}:${event}`
-      const n = (seen.get(key) ?? 0) + 1
-      seen.set(key, n)
-      await record($, e.agentId ? 'subagent' : UNMATCHED, `${event} #${n}`, tokens)
-    }
+    // 主對話裡未比中的只記合計；subagent 裡未比中的依事件分列
+    if (e.agentId) await record($, SUBAGENT, name ?? `${event} hook`, tokens)
+    else if (name) await record($, name, `${event} hook`, tokens)
+    else await record($, UNMATCHED, UNMATCHED, tokens)
     return result
   })
 
@@ -198,7 +199,7 @@ export const register: Register = (on, options) => {
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     if (e.props.hasSurvey) return next(e)
 
-    const [id, all, now, out, pct, res, expanded] = await Promise.all([
+    const [id, all, now, out, pct, residents, expanded] = await Promise.all([
       read($, model),
       read($, injections),
       read($, round),
@@ -209,15 +210,18 @@ export const register: Register = (on, options) => {
     ])
     if (!id) return next(e)
 
+    // subagent 排在一般來源之後，未比中排在最後
+    const rank = (name: string) => (name === UNMATCHED ? 2 : name === SUBAGENT ? 1 : 0)
     const sum = (items: Record<string, Injection>) => Object.values(items).reduce((s, u) => s + u.tokens, 0)
-    const isFresh = (items: Record<string, Injection>) => Object.values(items).some(u => u.round === now && now > 0)
+    const isNow = (u: Injection) => now > 0 && u.round === now
+    const isFresh = (items: Record<string, Injection>) => Object.values(items).some(isNow)
     const groups = Object.entries(all)
       .map(([name, items]) => ({ name, items, tokens: sum(items), isFresh: isFresh(items) }))
-      .sort((a, b) => b.tokens - a.tokens)
+      .sort((a, b) => rank(a.name) - rank(b.name) || b.tokens - a.tokens)
     const named = groups.filter(g => g.name !== UNMATCHED)
     const unmatched = all[UNMATCHED] ?? {}
     const total = groups.reduce((s, g) => s + g.tokens, 0)
-    const residentTotal = res.reduce((s, r) => s + r.tokens, 0)
+    const residentTotal = residents.reduce((s, r) => s + r.tokens, 0)
 
     // 外框兩側各一格框線、一格留白
     const cols = e.props.bodyColumns - 4
@@ -240,7 +244,7 @@ export const register: Register = (on, options) => {
     ]
 
     if (!expanded) {
-      const inline = groups.map(g => [`${g.isFresh ? '●' : ''}${g.name || '未比中'}`, g.tokens] as const)
+      const inline = groups.map(g => [`${g.isFresh ? '●' : ''}${groupLabel(g.name)}`, g.tokens] as const)
       const empty = inline.length ? '' : ' · 尚未有注入'
       // 終端機把按鈕畫成「[ 標籤 ]」；寬度另外扣一格
       const room = cols - width(head + usage + empty) - 1 - width(`[ ${toggleLabel} ]`)
@@ -250,8 +254,8 @@ export const register: Register = (on, options) => {
           <Text wrap="truncate-end">
             {headParts}
             <Text dimColor>{empty}</Text>
-            {shown.map(([name, tok]) => (
-              <Text key={name}>
+            {shown.map(([name, tok], i) => (
+              <Text key={groups[i]?.name}>
                 {'  '}
                 {name} <Text dimColor>{tok}</Text>
               </Text>
@@ -263,17 +267,18 @@ export const register: Register = (on, options) => {
       )
     }
 
-    // 明細：注入、常駐、未比中三段
-    const items = [...named.flatMap(g => Object.values(g.items)), ...Object.values(unmatched)]
+    // 明細：注入、常駐兩段，未比中只列合計
+    const items = named.flatMap(g => Object.values(g.items))
     const max = Math.max(1, ...items.map(u => u.tokens))
     const labels = [
-      ...named.flatMap(g => [g.name, ...Object.keys(g.items).map(k => `  ${k}`)]),
-      ...Object.keys(unmatched),
-      ...res.map(r => r.name),
+      ...named.flatMap(g => [groupLabel(g.name), ...Object.keys(g.items).map(k => `  ${k}`)]),
+      ...residents.map(r => r.name),
     ]
-    // 每列另需標記 2 格、空白 1 格、數字 5 格與次數 3 格
-    const nameW = Math.max(4, Math.min(24, cols - 11, Math.max(...labels.map(width))))
-    const barW = cols >= 48 ? Math.min(20, cols - nameW - 16) : 0
+    // 每列另需標記 2 格、空白 1 格、數字 5 格與次數 3 格；有長條時再加長條與 1 格空白
+    // 48 欄以上一定畫長條，最少 8 格，空間不夠時先縮短名稱
+    const longest = Math.max(...labels.map(width))
+    const barW = cols >= 48 ? Math.max(8, Math.min(20, cols - 16 - Math.min(NAME_W, longest))) : 0
+    const nameW = Math.max(4, Math.min(NAME_W, cols - 11 - (barW > 0 ? barW + 5 : 0), longest))
     const row = (key: string, name: string, use: { tokens: number; count?: number }, bar: boolean, fresh = false) => {
       const label = clip(name, nameW)
       const filled = Math.max(1, Math.round((use.tokens / max) * barW))
@@ -291,11 +296,22 @@ export const register: Register = (on, options) => {
         </Text>
       )
     }
-    const heading = (key: string, text: string) => (
-      <Text key={key} dimColor>{text}</Text>
+    // 段落標題後接一句說明，放不下時截斷
+    const heading = (key: string, text: string, note = '') => (
+      <Text key={key} dimColor wrap="truncate-end">
+        {note ? `${text}  ${note}` : text}
+      </Text>
     )
-    const shownResident = barW > 0 ? res.slice(0, RESIDENT_MAX) : []
-    const restResident = res.length - shownResident.length
+    // 全螢幕時常駐全部列出；否則明細限半個視窗高，常駐放不下的併成一行
+    const rows = e.viewport?.rows
+    const limit = e.viewport?.isFullscreen === false && rows ? Math.floor(rows / 2) : Infinity
+    const isEmpty = named.length === 0 && Object.keys(unmatched).length === 0
+    // 外框上下、模型列、注入標題、常駐標題、未比中各佔一行
+    const fixed = 4 + (isEmpty ? 1 : 0) + named.reduce((n, g) => n + 1 + Object.keys(g.items).length, 0)
+      + (residents.length ? 1 : 0) + (Object.keys(unmatched).length ? 1 : 0)
+    const room = limit - fixed
+    const shownResident = barW === 0 ? [] : residents.length <= room ? residents : residents.slice(0, Math.max(0, room - 1))
+    const restResident = residents.length - shownResident.length
 
     return frame(
       <Box flexDirection="column" flexGrow={1}>
@@ -303,21 +319,20 @@ export const register: Register = (on, options) => {
           <Text wrap="truncate-end">{headParts}</Text>
           {toggle}
         </Box>
-        {heading('h-inj', `注入 ≈${formatTokens(total)}`)}
-        {named.length === 0 && Object.keys(unmatched).length === 0 ? heading('none', '  尚未有注入') : null}
+        {heading('h-inj', `注入 ≈ ${formatTokens(total)}`, 'skill 與 hook 加進對話的內容')}
+        {isEmpty ? heading('none', '  尚未有注入') : null}
         {named.flatMap(g => [
-          row(`g-${g.name}`, g.name, { tokens: g.tokens }, false, g.isFresh),
+          row(`g:${g.name}`, groupLabel(g.name), { tokens: g.tokens }, false, g.isFresh),
           ...Object.entries(g.items)
             .sort((a, b) => b[1].tokens - a[1].tokens)
-            .map(([k, u]) => row(`i-${g.name}-${k}`, `  ${k}`, u, true, u.round === now && now > 0)),
+            .map(([k, u]) => row(`i:${JSON.stringify([g.name, k])}`, `  ${k}`, u, true, isNow(u))),
         ])}
-        {res.length ? heading('h-res', `常駐 ≈${formatTokens(residentTotal)}`) : null}
-        {shownResident.map(r => row(`r-${r.name}`, r.name, r, false))}
-        {restResident > 0 && shownResident.length > 0 ? heading('r-rest', `  其他 ${restResident} 項`) : null}
-        {Object.keys(unmatched).length ? heading('h-un', '未比中') : null}
-        {Object.entries(unmatched)
-          .sort((a, b) => b[1].tokens - a[1].tokens)
-          .map(([k, u]) => row(`u-${k}`, k, u, true, u.round === now && now > 0))}
+        {residents.length ? heading('h-res', `常駐 ≈ ${formatTokens(residentTotal)}`, '每輪固定送出的內容') : null}
+        {shownResident.map(r => row(`r:${r.name}`, r.name, r, false))}
+        {restResident > 0 && barW > 0 ? heading('r-rest', `  其他 ${restResident} 項`) : null}
+        {Object.keys(unmatched).length
+          ? heading('h-un', `${UNMATCHED_LABEL} ≈ ${formatTokens(sum(unmatched))}`, '認不出來源的 hook 注入')
+          : null}
       </Box>
     )
   })

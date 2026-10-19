@@ -24,7 +24,7 @@ const done = (turnId: string, agentId?: string) =>
   ({ answer: '', turnId, agentId, reason: 'answer', durationMs: 1, isAborted: false }) as any
 
 // 模擬引擎：模型、context 用量與常駐分項；usage.calls 記錄查詢次數
-const engine = (on: any, percent = 42) => {
+const engine = (on: any, percent = 42, extraTools: object[] = []) => {
   const usage = { calls: 0 }
   on('session.model', () => ({ value: 'claude-opus-5-5' }))
   on('turn.start', ($: unknown, e: { turnId: string }) => ({ turnId: e.turnId }))
@@ -45,6 +45,7 @@ const engine = (on: any, percent = 42) => {
           mcpTools: [
             { name: 'x', serverName: 'Figma', tokens: 2000, isLoaded: true },
             { name: 'y', serverName: 'Gmail', tokens: 9000, isLoaded: false },
+            ...extraTools,
           ],
           agents: [],
           memoryFiles: [{ path: 'CLAUDE.md', type: 'User', tokens: 500 }],
@@ -120,9 +121,9 @@ test('skill 與 hook 注入依 plugin 分組，未比中的另列', { options: R
       expect(await ui.find({ type: 'Text', text: /superpowers/ })).toBeDefined()
       expect(await ui.find({ type: 'Text', text: /●caveman/ })).toBeDefined()
     }
-    expect(Boolean(await ui.find({ type: 'Text', text: /SessionStart #1/ }))).toBe(startsExpanded)
+    expect(Boolean(await ui.find({ type: 'Text', text: /SessionStart hook/ }))).toBe(startsExpanded)
     await ui.press({ key: 'toggle' })
-    expect(Boolean(await ui.find({ type: 'Text', text: /SessionStart #1/ }))).toBe(!startsExpanded)
+    expect(Boolean(await ui.find({ type: 'Text', text: /SessionStart hook/ }))).toBe(!startsExpanded)
     await ui.unmount()
   }
 
@@ -131,7 +132,7 @@ test('skill 與 hook 注入依 plugin 分組，未比中的另列', { options: R
   expect(await ui.find({ type: 'Text', text: /SessionStart hook/ })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /UserPromptSubmit hook/ })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /×2/ })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: /常駐 ≈5\.5k/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /常駐 ≈ 5\.5k  每輪固定送出的內容/ })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /MCP Figma/ })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /MCP Gmail/ })).toBeUndefined()
   expect(await ui.find({ type: 'Text', text: /subagent/ })).toBeDefined()
@@ -158,6 +159,114 @@ test('沒有規則時，hook 注入都歸未比中', async ($, on) => {
   expect(await ui.find({ type: 'Text', text: /未比中/ })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /ponytail/ })).toBeUndefined()
   await ui.unmount()
+})
+
+test('未比中在明細裡只列合計', async ($, on) => {
+  engine(on)
+  await $.turn.start({ text: '', turnId: 't1' })
+  await inject($, 'SessionStart', 'AAA\n' + 'x'.repeat(400))
+  await inject($, 'UserPromptSubmit', 'BBB\n' + 'x'.repeat(400))
+
+  const ui = await $.ui.mount({ plugin: 'session-lens', surface: 'desktop', ...band(120) })
+  await ui.press({ key: 'toggle' })
+  expect(await ui.find({ type: 'Text', text: /未比中 ≈ 202  認不出來源的 hook 注入/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /SessionStart|UserPromptSubmit/ })).toBeUndefined()
+  await ui.unmount()
+})
+
+test('subagent 排在一般來源之後、未比中最後，常駐全部列出，名稱含 - 的列不互相蓋掉', async ($, on) => {
+  const tools = ['A', 'B', 'C', 'D', 'E'].map(n => ({ name: n, serverName: n, tokens: 100, isLoaded: true }))
+  engine(on, 42, tools)
+  on('skill.prompt', () => ({ text: 'x'.repeat(40) }))
+  await $.turn.start({ text: '', turnId: 't1' })
+  await inject($, 'SessionStart', 'PONYTAIL MODE ACTIVE\n' + 'x'.repeat(40000), 'a1')
+  await inject($, 'SessionStart', 'UNKNOWN\n' + 'x'.repeat(80000))
+  // subagent 裡未比中的依事件分列
+  await inject($, 'UserPromptSubmit', 'UNKNOWN', 'a1')
+  // 名叫 subagent 的 plugin 不和 subagent 那組合併
+  await $.skill.prompt({ skill: 's', text: '', pluginName: 'subagent' })
+  await $.skill.prompt({ skill: 'c', text: '', pluginName: 'a-b' })
+  await $.skill.prompt({ skill: 'b-c', text: '', pluginName: 'a' })
+  await $.turn.complete(done('t1'))
+
+  const ui = await $.ui.mount({ plugin: 'session-lens', surface: 'desktop', ...band(120) })
+  await ui.press({ key: 'toggle' })
+  const texts = (await ui.findAll({ type: 'Text' })).map(t => t.text)
+  const at = (re: RegExp) => texts.findIndex(t => re.test(t))
+  expect(texts.findLastIndex(t => /^(● | {2})subagent /.test(t))).toBeGreaterThan(at(/^(● | {2})a-b /))
+  await ui.press({ key: 'toggle' })
+  const line = (await ui.findAll({ type: 'Text', text: /未比中/ })).map(t => t.text).sort((a, b) => b.length - a.length)[0] ?? ''
+  expect(line).toMatch(/subagent/)
+  expect(line.indexOf('未比中')).toBeGreaterThan(line.indexOf('subagent'))
+  expect(texts.filter(t => /^(● | {2})subagent /.test(t))).toHaveLength(2)
+  expect(at(/^(● | {2}) {2}UserPromptSubmit hook /)).toBeGreaterThan(-1)
+  expect(texts.filter(t => /^ {2}(MCP [A-E]|MCP Figma|superpowers|記憶檔) /.test(t))).toHaveLength(8)
+  expect(at(/其他/)).toBe(-1)
+  expect(at(/^(● | {2}) {2}c /)).toBeGreaterThan(-1)
+  expect(at(/^(● | {2}) {2}b-c /)).toBeGreaterThan(-1)
+  await ui.unmount()
+})
+
+test('80 欄時，30 字的 skill 名稱完整顯示，更長的截斷', async ($, on) => {
+  engine(on)
+  on('skill.prompt', () => ({ text: 'x'.repeat(400) }))
+  const name = 'a'.repeat(30)
+  await $.turn.start({ text: '', turnId: 't1' })
+  await $.skill.prompt({ skill: name, text: '', pluginName: 'p' })
+  await $.skill.prompt({ skill: 'b'.repeat(40), text: '', pluginName: 'p' })
+
+  const ui = await $.ui.mount({ plugin: 'session-lens', surface: 'terminal', ...band(75) })
+  await ui.press({ key: 'toggle' })
+  expect(await ui.find({ type: 'Text', text: new RegExp(`${name} +█{20}`) })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /b{29}… / })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /注入 ≈ 200  skill 與 hook/ })).toBeDefined()
+  await ui.unmount()
+})
+
+test('48 欄以上、名稱很長時，仍畫長條並列出常駐', async ($, on) => {
+  engine(on)
+  on('skill.prompt', () => ({ text: 'x'.repeat(400) }))
+  await $.turn.start({ text: '', turnId: 't1' })
+  await $.skill.prompt({ skill: 'a'.repeat(40), text: '', pluginName: 'p' })
+  await $.turn.complete(done('t1'))
+
+  const ui = await $.ui.mount({ plugin: 'session-lens', surface: 'terminal', ...band(54) })
+  await ui.press({ key: 'toggle' })
+  expect(await ui.find({ type: 'Text', text: /█{8}/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /MCP Figma/ })).toBeDefined()
+  await ui.unmount()
+})
+
+test('終端機主畫面上，明細壓在半個視窗內；全螢幕時交給引擎捲動', async ($, on) => {
+  const tools = ['A', 'B', 'C', 'D', 'E'].map(n => ({ name: n, serverName: n, tokens: 100, isLoaded: true }))
+  engine(on, 42, tools)
+  on('skill.prompt', () => ({ text: 'x'.repeat(40) }))
+  await $.turn.start({ text: '', turnId: 't1' })
+  await $.skill.prompt({ skill: 'c', text: '', pluginName: 'p' })
+  await $.turn.complete(done('t1'))
+
+  const residentRows = async (isFullscreen: boolean) => {
+    const ui = await $.ui.mount({
+      plugin: 'session-lens',
+      surface: 'terminal',
+      ...band(120),
+      viewport: { columns: 124, rows: 24, isFullscreen },
+    })
+    // 展開狀態屬於 session，只在第一次按
+    if (!isFullscreen) await ui.press({ key: 'toggle' })
+    const texts = (await ui.findAll({ type: 'Text' })).map(t => t.text)
+    await ui.unmount()
+    return texts
+  }
+
+  // 24 行的視窗壓在 12 行內：外框、模型列、注入 3 行、常駐標題佔 7 行，常駐列 4 項加「其他 4 項」
+  const main = await residentRows(false)
+  expect(main.filter(t => /^ {2}(MCP |superpowers|記憶檔)/.test(t))).toHaveLength(4)
+  expect(main.some(t => /其他 4 項/.test(t))).toBe(true)
+
+  const full = await residentRows(true)
+  expect(full.filter(t => /^ {2}(MCP |superpowers|記憶檔)/.test(t))).toHaveLength(8)
+  expect(full.some(t => /其他/.test(t))).toBe(false)
 })
 
 test('本輪 output 只算主對話，換輪歸零', async ($, on) => {
