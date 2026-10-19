@@ -20,12 +20,20 @@ const inject = ($: any, event: string, text: string, agentId?: string) =>
 
 const RULES = { hookLabels: ['PONYTAIL MODE=ponytail', 'CAVEMAN MODE=caveman'] }
 
-// 模擬引擎：模型、context 用量與常駐分項
+const done = (turnId: string, agentId?: string) =>
+  ({ answer: '', turnId, agentId, reason: 'answer', durationMs: 1, isAborted: false }) as any
+
+// 模擬引擎：模型、context 用量與常駐分項；usage.calls 記錄查詢次數
 const engine = (on: any, percent = 42) => {
+  const usage = { calls: 0 }
   on('session.model', () => ({ value: 'claude-opus-5-5' }))
   on('turn.start', ($: unknown, e: { turnId: string }) => ({ turnId: e.turnId }))
+  on('turn.complete', ($: unknown, e: { answer: string }) => ({
+    text: e.answer,
+    usage: { input_tokens: 10, output_tokens: 1500, cache_read_input_tokens: 0, cache_creation_input_tokens: 0, model: 'claude-opus-5-5' },
+  }))
   on('prompt.attachment', ($: unknown, e: { text: string }) => ({ text: e.text }))
-  on('session.usage', () => ({
+  on('session.usage', () => (usage.calls++, {
     value: {
       startedAt: 0,
       rateLimits: [],
@@ -44,6 +52,7 @@ const engine = (on: any, percent = 42) => {
       },
     },
   }))
+  return usage
 }
 
 test('估算與格式化', async () => {
@@ -100,6 +109,7 @@ test('skill 與 hook 注入依 plugin 分組，未比中的另列', { options: R
   await inject($, 'SessionStart', 'PONYTAIL MODE ACTIVE', 'a1')
   // 不是 hook 來源的注入不算
   await $.prompt.attachment({ type: 'file', text: 'secret', origin: { kind: 'engine' } })
+  await $.turn.complete(done('t2'))
 
   // 展開狀態屬於 session，兩種介面共用
   for (const [surface, startsExpanded] of [['terminal', false], ['desktop', true]] as const) {
@@ -152,13 +162,9 @@ test('沒有規則時，hook 注入都歸未比中', async ($, on) => {
 
 test('本輪 output 只算主對話，換輪歸零', async ($, on) => {
   engine(on)
-  on('turn.complete', ($: unknown, e: { answer: string }) => ({
-    text: e.answer,
-    usage: { input_tokens: 10, output_tokens: 1500, cache_read_input_tokens: 0, cache_creation_input_tokens: 0, model: 'claude-opus-5-5' },
-  }))
   await $.turn.start({ text: '', turnId: 't1' })
-  await $.turn.complete({ answer: '', turnId: 't1', reason: 'answer', durationMs: 1, isAborted: false } as any)
-  await $.turn.complete({ answer: '', turnId: 's1', agentId: 'a1', reason: 'answer', durationMs: 1, isAborted: false } as any)
+  await $.turn.complete(done('t1'))
+  await $.turn.complete(done('s1', 'a1'))
 
   const ui = await $.ui.mount({ plugin: 'session-lens', surface: 'terminal', ...band(120) })
   expect(await ui.find({ type: 'Text', text: /↑1\.5k/ })).toBeDefined()
@@ -168,6 +174,14 @@ test('本輪 output 只算主對話，換輪歸零', async ($, on) => {
   const next = await $.ui.mount({ plugin: 'session-lens', surface: 'terminal', ...band(120) })
   expect(await next.find({ type: 'Text', text: /↑/ })).toBeUndefined()
   await next.unmount()
+})
+
+test('一輪開始時不查用量，結束後才更新', async ($, on) => {
+  const usage = engine(on)
+  await $.turn.start({ text: '', turnId: 't1' })
+  expect(usage.calls).toBe(0)
+  await $.turn.complete(done('t1'))
+  expect(usage.calls).toBe(1)
 })
 
 test('所有項目都是 0 token 時，明細仍畫出長條', async ($, on) => {

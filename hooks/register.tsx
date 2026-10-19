@@ -171,23 +171,20 @@ export const register: Register = (on, options) => {
     return result
   })
 
-  // 使用者每送出一則訊息，主對話就開始新的一輪；subagent 的 turn 有自己的 context，不算進主對話的用量
+  // 使用者每送出一則訊息，主對話就開始新的一輪；只處理主對話的 turn
   on('turn.start', async ($, e, next) => {
     if (!e.agentId) {
-      await Promise.all([update($, round, n => n + 1), update($, output, () => 0), refreshModel($), refreshResident($)])
+      await Promise.all([update($, round, n => n + 1), update($, output, () => 0), refreshModel($)])
     }
     return next(e)
   })
 
+  // 一輪結束後才查 context 用量與常駐成本
   on('turn.complete', async ($, e, next) => {
     const result = await next(e)
     if (!e.agentId) {
       const out = result.usage?.output_tokens ?? 0
-      const { context } = await $.session.usage()
-      await Promise.all([
-        update($, output, n => n + out),
-        update($, contextPercent, () => context.percent ?? null),
-      ])
+      await Promise.all([update($, output, n => n + out), refreshResident($)])
     }
     return result
   })

@@ -63,7 +63,7 @@ CAVEMAN MODE=caveman
 - 注入量是依文字估算的（中日韓字元約一字一 token，其他約四字元一 token），誤差約一到兩成。常駐成本用的是 Claude Code 在本機的估算，不會連網。
 - 對話壓縮（compact）後，注入量繼續累加，代表這個 session 總共注入過多少；context 目前的狀況看 `ctx`。
 - 執行 `/reload-plugins` 後，session 開頭的 hook 注入會被重送一次，數字會多算一次。
-- 模型、context 用量與常駐成本在每一輪開始和結束時更新。
+- 模型在每一輪開始時更新；context 用量與常駐成本在每一輪結束時更新，第一輪結束前不會顯示。
 
 ## 資料範圍
 
