@@ -126,7 +126,7 @@ const refreshResident = async ($: EngineInterface) => {
     const n = name.slice(0, NAME_MAX)
     sums.set(n, (sums.get(n) ?? 0) + tokens)
   }
-  for (const s of b?.skills?.skillFrontmatter ?? []) add(s.pluginName ?? LOCAL, s.tokens)
+  for (const s of b?.skills?.skillFrontmatter ?? []) add(s.pluginName || LOCAL, s.tokens)
   for (const t of b?.mcpTools ?? []) if (t.isLoaded) add(`MCP ${t.serverName}`, t.tokens)
   for (const a of b?.agents ?? []) add('subagent 定義', a.tokens)
   for (const f of b?.memoryFiles ?? []) add('記憶檔', f.tokens)
@@ -138,7 +138,8 @@ const refreshResident = async ($: EngineInterface) => {
 }
 
 export const register: Register = (on, options) => {
-  const rules = parseRules((options.hookLabels as readonly string[] | undefined) ?? [])
+  const labels = options.hookLabels
+  const rules = parseRules(Array.isArray(labels) ? labels : [])
 
   on('session.start', async ($, e, next) => {
     await refreshModel($)
@@ -192,7 +193,7 @@ export const register: Register = (on, options) => {
 
   on('skill.prompt', async ($, e, next) => {
     const result = await next(e)
-    await record($, e.pluginName ?? LOCAL, e.skill, estimateTokens(result.text))
+    await record($, e.pluginName || LOCAL, e.skill, estimateTokens(result.text))
     return result
   })
 

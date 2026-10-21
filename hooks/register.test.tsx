@@ -319,3 +319,25 @@ test('session 結束後清空統計', async ($, on) => {
   expect(await ui.find({ type: 'Text', text: /ctx/ })).toBeUndefined()
   await ui.unmount()
 })
+
+test('plugin 名稱是空字串的 skill 歸到本機，不混進未比中', async ($, on) => {
+  engine(on)
+  on('skill.prompt', () => ({ text: 'x'.repeat(400) }))
+  await $.turn.start({ text: '', turnId: 't1' })
+  await $.skill.prompt({ skill: 'tdd', text: '', pluginName: '' })
+
+  const ui = await $.ui.mount({ plugin: 'session-lens', surface: 'terminal', ...band(120) })
+  expect(await ui.find({ type: 'Text', text: /本機/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /未比中/ })).toBeUndefined()
+  await ui.unmount()
+})
+
+test('比對規則設定不是陣列時當成沒有規則', { options: { hookLabels: 'PONYTAIL MODE=ponytail' } }, async ($, on) => {
+  engine(on)
+  await $.turn.start({ text: '', turnId: 't1' })
+  await inject($, 'SessionStart', 'PONYTAIL MODE ACTIVE')
+
+  const ui = await $.ui.mount({ plugin: 'session-lens', surface: 'terminal', ...band(120) })
+  expect(await ui.find({ type: 'Text', text: /未比中/ })).toBeDefined()
+  await ui.unmount()
+})
