@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="662" height="452" viewBox="0 0 662 452" role="img" aria-label="session-lens 明細">
+<style>
+text{font:14px "Geist Mono","SF Mono",Menlo,Consolas,"Noto Sans Mono CJK TC","PingFang TC",monospace;white-space:pre}
+.fg{fill:#eceef0}.dim{fill:#7f8790}.acc{fill:#8ed9e1}.accb{fill:#8ed9e1;font-weight:700}
+.title{font-size:12px;fill:#7f8790;text-anchor:middle}
+</style>
+<rect x=".5" y=".5" width="661" height="451" rx="12" fill="#1a1d21" stroke="#30353c"/>
+<path d="M.5 36V12.5a12 12 0 0 1 12-12h637a12 12 0 0 1 12 12V36z" fill="#22262b"/>
+<line x1="0" y1="36" x2="662" y2="36" stroke="#30353c"/>
+<circle cx="20" cy="18" r="6" fill="#3a4048"/><circle cx="40" cy="18" r="6" fill="#3a4048"/><circle cx="60" cy="18" r="6" fill="#3a4048"/>
+<text class="title" x="331" y="22">claude · ~/my-app</text>
+<rect x="24.2" y="55.0" width="613.2" height="286" rx="7" fill="none" stroke="#4a5058"/>
+<g transform="translate(20 0)"><text class="accb" x="16.8 33.6 42.0 50.4 58.8 75.6 84.0 92.4" y="81">●Opus5.5</text><text class="dim" x="109.2 126.0 134.4 142.8 159.6 168.0 184.8 201.6 210.0 218.4 226.8 235.2" y="81">·ctx7%·↑1.2k</text></g>
+<g transform="translate(20 0)"><text class="dim" x="16.8 33.6 58.8 75.6 84.0 92.4 100.8 126.0 134.4 142.8 151.2 159.6 176.4 201.6 210.0 218.4 226.8 243.6 260.4 277.2 294.0 310.8 327.6 344.4" y="103">注入≈6.8kskill與hook加進對話的內容</text></g>
+<g transform="translate(20 0)"><text class="fg" x="33.6 42.0 50.4 58.8 67.2 75.6 84.0 92.4" y="125">ponytail</text><text class="fg" x="420.0 428.4 436.8 445.2" y="125">2.6k</text></g>
+<g transform="translate(20 0)"><text class="fg" x="50.4 58.8 67.2 75.6 84.0 92.4 100.8 109.2 117.6 126.0 134.4 142.8 159.6 168.0 176.4 184.8" y="147">SessionStarthook</text><text class="fg" x="235.2 243.6 252.0 260.4 268.8 277.2 285.6 294.0 302.4 310.8 319.2 327.6 336.0 344.4 352.8 361.2 369.6 378.0 386.4 394.8" y="147">████████████████████</text><text class="fg" x="420.0 428.4 436.8 445.2" y="147">2.6k</text></g>
+<g transform="translate(20 0)"><text class="acc" x="16.8" y="169">●</text><text class="fg" x="33.6 42.0 50.4 58.8 67.2 75.6 84.0" y="169">caveman</text><text class="fg" x="420.0 428.4 436.8 445.2" y="169">2.4k</text></g>
+<g transform="translate(20 0)"><text class="fg" x="50.4 58.8 67.2 75.6 84.0 92.4 100.8 109.2 117.6 126.0 134.4 142.8 159.6 168.0 176.4 184.8" y="191">SessionStarthook</text><text class="fg" x="235.2 243.6 252.0 260.4 268.8 277.2 285.6 294.0 302.4 310.8 319.2 327.6 336.0 344.4 352.8" y="191">███████████████</text><text class="dim" x="361.2 369.6 378.0 386.4 394.8" y="191">░░░░░</text><text class="fg" x="420.0 428.4 436.8 445.2" y="191">2.0k</text></g>
+<g transform="translate(20 0)"><text class="acc" x="16.8" y="213">●</text><text class="fg" x="50.4 58.8 67.2 75.6 84.0 92.4 100.8 109.2 117.6 126.0 134.4 142.8 151.2 159.6 168.0 176.4 193.2 201.6 210.0 218.4" y="213">UserPromptSubmithook</text><text class="fg" x="235.2 243.6 252.0" y="213">███</text><text class="dim" x="260.4 268.8 277.2 285.6 294.0 302.4 310.8 319.2 327.6 336.0 344.4 352.8 361.2 369.6 378.0 386.4 394.8" y="213">░░░░░░░░░░░░░░░░░</text><text class="fg" x="428.4 436.8 445.2" y="213">452</text><text class="dim" x="462.0 470.4" y="213">×4</text></g>
+<g transform="translate(20 0)"><text class="dim" x="16.8 33.6 58.8 75.6 84.0 92.4 117.6 134.4 151.2 168.0 184.8 201.6 218.4 235.2 252.0" y="235">常駐≈13k每輪固定送出的內容</text></g>
+<g transform="translate(20 0)"><text class="fg" x="33.6 50.4" y="257">本機</text><text class="fg" x="420.0 428.4 436.8 445.2" y="257">5.0k</text></g>
+<g transform="translate(20 0)"><text class="fg" x="33.6 50.4 67.2" y="279">記憶檔</text><text class="fg" x="420.0 428.4 436.8 445.2" y="279">2.3k</text></g>
+<g transform="translate(20 0)"><text class="dim" x="33.6 50.4 75.6 92.4" y="301">其他3項</text></g>
+<g transform="translate(20 0)"><text class="dim" x="16.8 33.6 50.4 75.6 92.4 100.8 109.2 134.4 151.2 168.0 184.8 201.6 218.4 243.6 252.0 260.4 268.8 285.6 302.4" y="323">未比中≈861認不出來源的hook注入</text></g>
+<g transform="translate(20 0)"><text class="fg" x="537.6 554.4 571.2 596.4" y="81">[收合]</text></g>
+<rect x="24.2" y="363.0" width="613.2" height="44" rx="7" fill="none" stroke="#30353c"/>
+<g transform="translate(20 0)"><text class="fg" x="16.8" y="389">&gt;</text></g>
+<rect x="53.6" y="376" width="8.4" height="17" fill="#eceef0" opacity=".85"/>
+<g transform="translate(20 0)"><text class="dim" x="16.8 33.6 42.0 50.4 67.2 75.6 84.0 92.4 100.8 109.2 117.6 126.0 134.4" y="433">?forshortcuts</text></g>
+</svg>

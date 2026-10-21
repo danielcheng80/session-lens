@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="813" height="210" viewBox="0 0 813 210" role="img" aria-label="session-lens 一行模式">
+<style>
+text{font:14px "Geist Mono","SF Mono",Menlo,Consolas,"Noto Sans Mono CJK TC","PingFang TC",monospace;white-space:pre}
+.fg{fill:#eceef0}.dim{fill:#7f8790}.acc{fill:#8ed9e1}.accb{fill:#8ed9e1;font-weight:700}
+.title{font-size:12px;fill:#7f8790;text-anchor:middle}
+</style>
+<rect x=".5" y=".5" width="812" height="209" rx="12" fill="#1a1d21" stroke="#30353c"/>
+<path d="M.5 36V12.5a12 12 0 0 1 12-12h788a12 12 0 0 1 12 12V36z" fill="#22262b"/>
+<line x1="0" y1="36" x2="813" y2="36" stroke="#30353c"/>
+<circle cx="20" cy="18" r="6" fill="#3a4048"/><circle cx="40" cy="18" r="6" fill="#3a4048"/><circle cx="60" cy="18" r="6" fill="#3a4048"/>
+<text class="title" x="406" y="22">claude · ~/my-app</text>
+<rect x="24.2" y="55.0" width="764.4" height="44" rx="7" fill="none" stroke="#4a5058"/>
+<g transform="translate(20 0)"><text class="accb" x="16.8 33.6 42.0 50.4 58.8 75.6 84.0 92.4" y="81">●Opus5.5</text><text class="dim" x="109.2 126.0 134.4 142.8 159.6 168.0 184.8 201.6 210.0 218.4 226.8 235.2" y="81">·ctx7%·↑1.2k</text><text class="fg" x="260.4 268.8 277.2 285.6 294.0 302.4 310.8 319.2" y="81">ponytail</text><text class="dim" x="336.0 344.4 352.8 361.2" y="81">2.6k</text><text class="fg" x="386.4 394.8 403.2 411.6 420.0 428.4 436.8 445.2" y="81">●caveman</text><text class="dim" x="462.0 470.4 478.8 487.2" y="81">2.4k</text><text class="fg" x="512.4 529.2 546.0" y="81">未比中</text><text class="dim" x="571.2 579.6 588.0" y="81">861</text></g>
+<g transform="translate(20 0)"><text class="fg" x="688.8 705.6 722.4 747.6" y="81">[明細]</text></g>
+<rect x="24.2" y="121.0" width="764.4" height="44" rx="7" fill="none" stroke="#30353c"/>
+<g transform="translate(20 0)"><text class="fg" x="16.8" y="147">&gt;</text></g>
+<rect x="53.6" y="134" width="8.4" height="17" fill="#eceef0" opacity=".85"/>
+<g transform="translate(20 0)"><text class="dim" x="16.8 33.6 42.0 50.4 67.2 75.6 84.0 92.4 100.8 109.2 117.6 126.0 134.4" y="191">?forshortcuts</text></g>
+</svg>

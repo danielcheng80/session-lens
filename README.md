@@ -13,11 +13,7 @@ Claude Code mod：在輸入框上方顯示目前的模型、context 用量，以
 
 ## 一行模式
 
-```
-╭──────────────────────────────────────────────────────────────────────────────────────╮
-│ ● Opus 5.5 · ctx 7% · ↑1.2k  ponytail 2.6k  ●caveman 2.4k  未比中 861           明細 │
-╰──────────────────────────────────────────────────────────────────────────────────────╯
-```
+![一行模式：輸入框上方一條細框，依序顯示 Opus 5.5、ctx 7%、↑1.2k、各 plugin 的注入量，右側是「明細」按鈕](docs/images/inline.svg)
 
 由左到右依序是：
 
@@ -30,27 +26,28 @@ Claude Code mod：在輸入框上方顯示目前的模型、context 用量，以
 
 按「明細」展開，分成注入、常駐兩段，最後列出未比中的合計：
 
-```
-╭──────────────────────────────────────────────────────────────────────╮
-│ ● Opus 5.5 · ctx 7% · ↑1.2k                                     收合 │
-│ 注入 ≈ 6.8k  skill 與 hook 加進對話的內容                            │
-│   ponytail                                       2.6k                │
-│     SessionStart hook      ████████████████████  2.6k                │
-│ ● caveman                                        2.4k                │
-│     SessionStart hook      ███████████████░░░░░  2.0k                │
-│ ●   UserPromptSubmit hook  ███░░░░░░░░░░░░░░░░░   452 ×4             │
-│ 常駐 ≈ 13k  每輪固定送出的內容                                       │
-│   本機                                           5.0k                │
-│   記憶檔                                         2.3k                │
-│ 未比中 ≈ 861  認不出來源的 hook 注入                                 │
-╰──────────────────────────────────────────────────────────────────────╯
-```
+![明細：分成注入、常駐兩段，每個 hook 一列並附長條，最後是未比中的合計](docs/images/detail.svg)
 
 - **注入**：skill 展開的內容，以及 hook 附加給模型的 context，依 plugin 分組。`×N` 是次數。
 - **常駐**：每一輪都會送出的固定內容，例如各 plugin 的 skill 清單、已載入的 MCP 工具定義、subagent 定義、CLAUDE.md 等記憶檔。全螢幕模式下全部列出，超過這一區的高度時，用滑鼠滾輪或鍵盤捲動；一般模式下，明細最多佔半個視窗高，常駐放不下的併成「其他 N 項」。
 - **未比中**：認不出是哪個 plugin 注入的 hook 內容，只列一個合計。Claude Code 不提供 hook 注入的來源，要細分就得寫比對規則。
 - 送進 subagent 的 hook 注入另歸「subagent」一組，比中規則的依名稱分列，未比中的依事件名稱分列。即使有 plugin 也叫 subagent，兩組也不會合併。skill 分辨不出是在主對話還是 subagent 裡展開的，所以一律算在主對話。
 - 不屬於任何 plugin 的 skill（個人、專案或內建的 skill）歸在「本機」。
+
+### 常見的 hook 事件
+
+注入依事件分列，因為不同事件的注入次數差很多：有的整個 session 只注入一次，有的每輪、甚至每次工具呼叫都會注入。同一個 plugin 的總量差不多時，每輪都注入的那種，對話越長越吃 context。
+
+| 事件 | 何時注入 | 次數 |
+| --- | --- | --- |
+| [SessionStart](https://code.claude.com/docs/en/hooks#sessionstart) | session 開始或恢復時 | 每個 session 一次 |
+| [UserPromptSubmit](https://code.claude.com/docs/en/hooks#userpromptsubmit) | 你送出訊息後、模型處理之前 | 每輪一次 |
+| [PreToolUse](https://code.claude.com/docs/en/hooks#pretooluse) | 每次呼叫工具之前 | 每次工具呼叫 |
+| [PostToolUse](https://code.claude.com/docs/en/hooks#posttooluse) | 工具執行成功之後 | 每次工具呼叫 |
+| [SubagentStart](https://code.claude.com/docs/en/hooks#subagentstart) | 啟動 subagent 時，注入給該 subagent | 每個 subagent 一次 |
+| [Stop](https://code.claude.com/docs/en/hooks#stop) | 模型回覆完畢時 | 每輪一次 |
+
+其他會注入內容的事件，以及每段注入最多 10,000 字元的限制，請見官方文件的 [Add context for Claude](https://code.claude.com/docs/en/hooks#add-context-for-claude)。
 
 ## 認出 hook 是哪個 plugin 注入的
 
@@ -185,3 +182,5 @@ claude plugin test .
 claude plugin marketplace add ~/projects/session-lens
 claude plugin install session-lens@session-lens
 ```
+
+介面改了之後，修改 `docs/images/render.py` 裡的示意內容，再執行 `python3 docs/images/render.py` 重新產生 README 的兩張圖。
