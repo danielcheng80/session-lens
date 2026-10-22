@@ -146,6 +146,13 @@ export const register: Register = (on, options) => {
     return next(e)
   })
 
+  // /clear（含 /new）開出的新 session 不會觸發 session.start，改在這裡重新查模型與常駐成本
+  on('classic.SessionStart', async ($, e, next) => {
+    const result = await next(e)
+    if (e.source === 'clear') await Promise.all([refreshModel($), refreshResident($)])
+    return result
+  })
+
   // session 結束（離開、/clear、resume）時清空統計與展開狀態
   on('session.end', async ($, e, next) => {
     await Promise.all([

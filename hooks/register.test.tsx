@@ -320,6 +320,19 @@ test('session 結束後清空統計', async ($, on) => {
   await ui.unmount()
 })
 
+test('/clear 開出新 session 後，馬上重新查模型與常駐成本', async ($, on) => {
+  const usage = engine(on)
+  on('session.end', ($: unknown, e: { sessionId: string }) => ({ sessionId: e.sessionId }))
+  on('classic.SessionStart', () => ({}))
+  await $.session.end({ reason: 'clear', sessionId: 's1', resume: { id: 's1' } })
+  await $.classic.SessionStart({ source: 'clear' })
+
+  expect(usage.calls).toBe(1)
+  const ui = await $.ui.mount({ plugin: 'session-lens', surface: 'terminal', ...band(100) })
+  expect(await ui.find({ type: 'Text', text: /ctx/ })).toBeDefined()
+  await ui.unmount()
+})
+
 test('plugin 名稱是空字串的 skill 歸到本機，不混進未比中', async ($, on) => {
   engine(on)
   on('skill.prompt', () => ({ text: 'x'.repeat(400) }))
